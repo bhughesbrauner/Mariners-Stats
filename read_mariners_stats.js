@@ -34,39 +34,84 @@ function readAndProcessStats() {
   try {
     // Read CSV
     const csvPath = path.join(__dirname, "data", "mariners_stats.csv");
+    if (!fs.existsSync(csvPath)) {
+      throw new Error(`CSV file not found at ${csvPath}`);
+    }
+
     const csvData = fs.readFileSync(csvPath, "utf-8");
     const lines = csvData.trim().split("\n");
+
+    if (lines.length < 2) {
+      throw new Error("CSV file is empty or has only headers");
+    }
 
     // Parse headers
     const headers = lines[0].split(",");
     const nameIndex = headers.indexOf("Name");
     const paIndex = headers.indexOf("PA");
     const avgIndex = headers.indexOf("AVG");
+    const obpIndex = headers.indexOf("OBP");
+    const slgIndex = headers.indexOf("SLG");
     const hrIndex = headers.indexOf("HR");
     const wrcIndex = headers.indexOf("wRC+");
+
+    // Validate all required headers exist
+    const requiredHeaders = {
+      Name: nameIndex,
+      PA: paIndex,
+      AVG: avgIndex,
+      OBP: obpIndex,
+      SLG: slgIndex,
+      HR: hrIndex,
+      "wRC+": wrcIndex,
+    };
+
+    for (const [headerName, index] of Object.entries(requiredHeaders)) {
+      if (index === -1) {
+        throw new Error(`Missing required column: ${headerName}`);
+      }
+    }
+
+    // Helper to safely parse float values
+    const safeParseFloat = (value) => {
+      const num = parseFloat(value);
+      return isNaN(num) ? 0 : num;
+    };
 
     // Parse players
     const players = [];
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(",");
+
+      // Validate row has enough columns
+      if (cols.length < Math.max(nameIndex, paIndex, avgIndex, obpIndex, slgIndex, hrIndex, wrcIndex) + 1) {
+        console.warn(`Row ${i + 1} has insufficient columns, skipping`);
+        continue;
+      }
+
+      const pa = parseInt(cols[paIndex], 10);
+      const name = cols[nameIndex].trim();
+
+      // Skip rows with no PA
+      if (pa < 1) continue;
+
       players.push({
-        name: cols[nameIndex].trim(),
-        pa: parseInt(cols[paIndex]),
+        name,
+        pa,
         avg: cols[avgIndex].trim(),
-        hr: parseInt(cols[hrIndex]),
-        wrc: parseInt(cols[wrcIndex]),
+        obp: cols[obpIndex].trim(),
+        slg: cols[slgIndex].trim(),
+        hr: parseInt(cols[hrIndex], 10),
+        wrc: parseInt(cols[wrcIndex], 10),
       });
     }
 
     const exclude = ["Julio Rodriguez", "Randy Arozarena"];
     const rhitters = [];
 
-    console.log("Looking up handedness from MLB API...\n");
+    console.log("Filtering right-handed hitters...\n");
 
     for (const player of players) {
-      // Skip if no PA
-      if (player.pa < 1) continue;
-
       const batSide = handednessMap[player.name];
 
       if (batSide) {
@@ -77,13 +122,7 @@ function readAndProcessStats() {
 
       // Only include right-handed hitters
       if (batSide === "R") {
-        rhitters.push({
-          name: player.name,
-          pa: player.pa,
-          avg: player.avg,
-          hr: player.hr,
-          wrc: player.wrc,
-        });
+        rhitters.push(player);
       }
     }
 
@@ -94,50 +133,73 @@ function readAndProcessStats() {
     console.log(
       "Name".padEnd(25),
       "PA".padEnd(6),
-      "AVG".padEnd(7),
+      "Slash Line".padEnd(16),
       "HR".padEnd(5),
-      "WRC",
+      "WRC"
     );
-    console.log("-".repeat(65));
+    console.log("-".repeat(70));
 
     rhitters.forEach((h) => {
+      const slashLine = `${h.avg}/${h.obp}/${h.slg}`;
       console.log(
         h.name.padEnd(25),
         h.pa.toString().padEnd(6),
-        h.avg.padEnd(7),
+        slashLine.padEnd(16),
         h.hr.toString().padEnd(5),
-        h.wrc,
+        h.wrc
       );
     });
 
     // Get only the hitters we want to count (exclude J-Rod and Arozarena)
-    const includedHitters = rhitters.filter((h) => !exclude.includes(h.name));
+    const includedHitters = rhitters.filter(
+      (h) => !exclude.some((excludedName) => h.name.trim() === excludedName.trim())
+    );
 
-    // Add up all plate appearances from these hitters
+    if (includedHitters.length === 0) {
+      console.log("\nNo hitters to include in weighted calculation.");
+      return;
+    }
+
+    // Calculate combined PA and weighted slash line stats in one pass
     let combinedPA = 0;
+    let weightedAvgSum = 0;
+    let weightedObpSum = 0;
+    let weightedSlgSum = 0;
+
     for (const hitter of includedHitters) {
+      const avg = safeParseFloat(hitter.avg);
+      const obp = safeParseFloat(hitter.obp);
+      const slg = safeParseFloat(hitter.slg);
+
       combinedPA += hitter.pa;
+      weightedAvgSum += avg * hitter.pa;
+      weightedObpSum += obp * hitter.pa;
+      weightedSlgSum += slg * hitter.pa;
     }
 
-    // Calculate weighted batting average
-    // (Each player's AVG is weighted by how many PA they had)
-    let weightedSum = 0;
-    for (const hitter of includedHitters) {
-      const battingAverage = parseFloat(hitter.avg);
-      const contribution = battingAverage * hitter.pa;
-      weightedSum += contribution;
-    }
+    // Calculate weighted stats (consistent numeric output)
+    const weightedAvg = combinedPA > 0 ? weightedAvgSum / combinedPA : 0;
+    const weightedObp = combinedPA > 0 ? weightedObpSum / combinedPA : 0;
+    const weightedSlg = combinedPA > 0 ? weightedSlgSum / combinedPA : 0;
 
-    const weightedAvg =
-      combinedPA > 0 ? (weightedSum / combinedPA).toFixed(3) : 0;
+    console.log("\nExcluded hitters:");
+    rhitters
+      .filter((h) => exclude.some((excludedName) => h.name.trim() === excludedName.trim()))
+      .forEach((h) => {
+        console.log(`  ${h.name} (${h.pa} PA)`);
+      });
 
-    console.log("-".repeat(65));
+    console.log("-".repeat(70));
     console.log(`\nTotal RH hitters: ${rhitters.length}`);
-    console.log(`\nWeighted BA (excluding J-Rod & Arozarena):`);
+    console.log(`Hitters counted: ${includedHitters.length}`);
+    console.log(`\nWeighted Slash Line (excluding J-Rod & Arozarena):`);
     console.log(`  Combined PA: ${combinedPA}`);
-    console.log(`  PA-Weighted AVG: ${weightedAvg}\n`);
+    console.log(
+      `  Weighted Line: ${weightedAvg.toFixed(3)}/${weightedObp.toFixed(3)}/${weightedSlg.toFixed(3)}\n`
+    );
   } catch (err) {
     console.error("Error:", err.message);
+    process.exit(1);
   }
 }
 
