@@ -84,7 +84,19 @@ function readAndProcessStats() {
       const cols = lines[i].split(",");
 
       // Validate row has enough columns
-      if (cols.length < Math.max(nameIndex, paIndex, avgIndex, obpIndex, slgIndex, hrIndex, wrcIndex) + 1) {
+      if (
+        cols.length <
+        Math.max(
+          nameIndex,
+          paIndex,
+          avgIndex,
+          obpIndex,
+          slgIndex,
+          hrIndex,
+          wrcIndex,
+        ) +
+          1
+      ) {
         console.warn(`Row ${i + 1} has insufficient columns, skipping`);
         continue;
       }
@@ -135,7 +147,7 @@ function readAndProcessStats() {
       "PA".padEnd(6),
       "Slash Line".padEnd(16),
       "HR".padEnd(5),
-      "WRC"
+      "WRC",
     );
     console.log("-".repeat(70));
 
@@ -146,13 +158,14 @@ function readAndProcessStats() {
         h.pa.toString().padEnd(6),
         slashLine.padEnd(16),
         h.hr.toString().padEnd(5),
-        h.wrc
+        h.wrc,
       );
     });
 
     // Get only the hitters we want to count (exclude J-Rod and Arozarena)
     const includedHitters = rhitters.filter(
-      (h) => !exclude.some((excludedName) => h.name.trim() === excludedName.trim())
+      (h) =>
+        !exclude.some((excludedName) => h.name.trim() === excludedName.trim()),
     );
 
     if (includedHitters.length === 0) {
@@ -182,20 +195,23 @@ function readAndProcessStats() {
     const weightedObp = combinedPA > 0 ? weightedObpSum / combinedPA : 0;
     const weightedSlg = combinedPA > 0 ? weightedSlgSum / combinedPA : 0;
 
+    console.log("-".repeat(70));
+
     console.log("\nExcluded hitters:");
     rhitters
-      .filter((h) => exclude.some((excludedName) => h.name.trim() === excludedName.trim()))
+      .filter((h) =>
+        exclude.some((excludedName) => h.name.trim() === excludedName.trim()),
+      )
       .forEach((h) => {
         console.log(`  ${h.name} (${h.pa} PA)`);
       });
 
-    console.log("-".repeat(70));
     console.log(`\nTotal RH hitters: ${rhitters.length}`);
     console.log(`Hitters counted: ${includedHitters.length}`);
     console.log(`\nWeighted Slash Line (excluding J-Rod & Arozarena):`);
     console.log(`  Combined PA: ${combinedPA}`);
     console.log(
-      `  Weighted Line: ${weightedAvg.toFixed(3)}/${weightedObp.toFixed(3)}/${weightedSlg.toFixed(3)}\n`
+      `  Weighted Line: ${weightedAvg.toFixed(3)}/${weightedObp.toFixed(3)}/${weightedSlg.toFixed(3)}\n`,
     );
   } catch (err) {
     console.error("Error:", err.message);
